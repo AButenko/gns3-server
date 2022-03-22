@@ -2012,6 +2012,7 @@ class QemuVM(BaseNode):
                 raise QemuError("Qemu version 2.4 or later is required to run this VM with a large number of network adapters")
 
         pci_device_id = 4 + pci_bridges  # Bridge consume PCI ports
+        rocker_device_str = ""
         for adapter_number, adapter in enumerate(self._ethernet_adapters):
             mac = int_to_macaddress(macaddress_to_int(self._mac_address) + adapter_number)
 
@@ -2053,7 +2054,7 @@ class QemuVM(BaseNode):
 
             else:
                 # newer QEMU networking syntax
-                device_string = "{},mac={}".format(adapter_type, mac)
+                device_string = "{},fp_start_macaddr={}".format(adapter_type, mac) if adapter_type == "rocker" else "{},mac={}".format(adapter_type, mac)
                 bridge_id = math.floor(pci_device_id / 32)
                 if bridge_id > 0:
                     if pci_bridges_created < bridge_id:
@@ -2064,7 +2065,12 @@ class QemuVM(BaseNode):
                     device_string = "{},bus=pci-bridge{bridge_id},addr=0x{addr:02x}".format(device_string, bridge_id=bridge_id, addr=addr)
                 pci_device_id += 1
                 if nio:
-                    network_options.extend(["-device", "{},netdev=gns3-{}".format(device_string, adapter_number)])
+                    if adapter_type == "rocker":
+                        rocker_device_str = "{},len-ports={}".format(device_string, adapter_number+1)
+                        for i in range(adapter_number+1):
+                            rocker_device_str += ",ports[{}]=gns3-{}".format(i, i)
+                    else:
+                        network_options.extend(["-device", "{},netdev=gns3-{}".format(device_string, adapter_number)])
                     if isinstance(nio, NIOUDP):
                         network_options.extend(["-netdev", "socket,id=gns3-{},udp={}:{},localaddr={}:{}".format(adapter_number,
                                                                                                                 nio.rhost,
@@ -2076,6 +2082,8 @@ class QemuVM(BaseNode):
                 else:
                     network_options.extend(["-device", device_string])
 
+        if rocker_device_str:
+            network_options.extend(["-device", rocker_device_str])
         return network_options
 
     async def _disable_graphics(self):
